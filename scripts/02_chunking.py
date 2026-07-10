@@ -1,79 +1,148 @@
-import json
-import os
+#环境准备与数据加载
 
+import json
+import pandas as pd
+
+# ---------- 1. 加载原始数据，转成DataFrame ----------
+with open("../data/processed/dataset.json", encoding="utf-8") as f:
+    data = json.load(f)
+
+df_raw = pd.DataFrame(data)
+print(f"原始记录数: {len(df_raw)}")
+
+# ---------- 2. 基础清洗 ----------
+# abstract缺失的记录丢弃（依据设计说明：abstract缺失率8.36% > 1%阈值，且是核心检索内容，无法填充）
+df_clean = df_raw[df_raw["abstract"].notna() & (df_raw["abstract"].str.strip() != "")].copy()
+print(f"清洗后有效记录数: {len(df_clean)}（丢弃了 {len(df_raw) - len(df_clean)} 条abstract缺失的记录）")
+
+# ---------- 3. 生成唯一标识 doc_id ----------
+# 用 pmc_id 而不是 pmid：pmc_id完整率100%，pmid有9.08%缺失，不适合当主键
+df_clean["doc_id"] = df_clean["pmc_id"]
+
+assert df_clean["doc_id"].is_unique, "doc_id 存在重复，需要检查数据"
+print(f"doc_id 唯一性检查通过，共 {df_clean['doc_id'].nunique()} 个唯一文献")
+
+
+# 实施制定的文本分割策略
+
+from transformers import AutoTokenizer
 try:
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 except ImportError:
     from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-from transformers import AutoTokenizer
-
-# ---------- 1. 加载数据 ----------
-with open("../data/processed/dataset.json", encoding="utf-8") as f:
-    data = json.load(f)
-
-valid = [r for r in data if r.get("abstract")]
-print(f"有效记录数: {len(valid)}")
-
-# ---------- 2. 加载真实tokenizer，定义token长度函数 ----------
+# ---------- 加载tokenizer ----------
 tokenizer = AutoTokenizer.from_pretrained("BAAI/bge-base-en-v1.5")
 
-def token_len(text):
+def count_tokens(text: str) -> int:
     return len(tokenizer.encode(text, truncation=False))
 
-# ---------- 3. 配置分块器 ----------
-# chunk_size/chunk_overlap 单位是“按length_function算出的长度”，这里指定用真实token数而不是字符数
+# ---------- 初始化分割器 ----------
 splitter = RecursiveCharacterTextSplitter(
     chunk_size=450,
     chunk_overlap=80,
-    length_function=token_len,
-    separators=["\n\n", "\n", ". ", " ", ""],  # 优先按段落/句子切，实在不行才按空格硬切
+    length_function=count_tokens,
+    separators=["\n\n", "\n", ". ", " ", ""],
+    keep_separator="end",
 )
 
-# ---------- 4. 对全部文章执行分块 ----------
-def chunk_documents(records):
-    """输入：dataset.json里的记录列表
-    输出：分块后的chunk列表，每个chunk带回原文章的元数据（journal/pub_date/pmid等），
-    方便后续在向量库里做metadata filter和溯源"""
-    all_chunks = []
-    for r in records:
-        full_text = f"{(r.get('title') or '').rstrip('.')}. {r['abstract']}"
-        chunks = splitter.split_text(full_text)
-        for i, chunk_text in enumerate(chunks):
-            all_chunks.append({
-                "chunk_id": f"{r['pmc_id']}_chunk{i}",
-                "pmc_id": r["pmc_id"],
-                "pmid": r.get("pmid"),
-                "journal": r.get("journal"),
-                "pub_date": r.get("pub_date"),
-                "chunk_index": i,
-                "total_chunks": len(chunks),
-                "text": chunk_text,
-                "token_count": token_len(chunk_text),
-            })
-    return all_chunks
+def build_full_text(document) -> str:
+    title = (document["title"] or "").rstrip(".")
+    return f"{title}. {document['abstract']}"
 
-all_chunks = chunk_documents(valid)
-print(f"\n分块后总chunk数: {len(all_chunks)}（原始文章数: {len(valid)}）")
 
-# ---------- 5. 验证结果 ----------
-not_split = sum(1 for r in valid if len(splitter.split_text(f"{r.get('title') or ''}\n{r['abstract']}")) == 1)
-print(f"未被分割（整篇当一个chunk）的文章数: {not_split} ({not_split/len(valid)*100:.1f}%)")
+def chunk_document(document) -> list[dict]:
+    full_text = build_full_text(document)
+    full_text_tokens = count_tokens(full_text)
 
-chunk_token_counts = [c["token_count"] for c in all_chunks]
-over_limit_chunks = sum(1 for t in chunk_token_counts if t > 512)
-print(f"分块后仍超过512 tokens的chunk数: {over_limit_chunks}（应该接近0）")
+    # ---------- 判断走哪个分支：token数是否超过chunk_size ----------
+    if full_text_tokens > 450:
+        # a. 根据长度进行智能分割
+        texts = splitter.split_text(full_text)
+        chunks = []
+        for i, text in enumerate(texts):
+            chunk_id = f"{document['doc_id']}_chunk{i}"
+            chunk_data = {
+                "chunk_id": chunk_id,
+                "text": text,
+                "doc_id": document["doc_id"],       # 归属的原文ID
+                "chunk_index": i,                    # 块在原文中的序号
+                "total_chunks": len(texts),          # 原文被分成的总块数
+                "source_title": document["title"],   # 保留原文标题，便于追溯
+                "token_count": count_tokens(text),
+                "pmid": document.get("pmid"),
+                "journal": document.get("journal"),
+                "pub_date": document.get("pub_date"),
+            }
+            chunks.append(chunk_data)
+        return chunks
+    else:
+        # b. 整体不分割
+        data = {
+            "chunk_id": document["doc_id"],   # 直接使用文献ID作为块ID
+            "text": full_text,
+            "doc_id": document["doc_id"],
+            "chunk_index": 0,
+            "total_chunks": 1,
+            "source_title": document["title"],
+            "token_count": full_text_tokens,
+            "pmid": document.get("pmid"),
+            "journal": document.get("journal"),
+            "pub_date": document.get("pub_date"),
+        }
+        return [data]
 
-# 抽查一篇原本超长的文章，看分块效果
-long_article = next(r for r in valid if token_len(f"{r.get('title') or ''}\n{r['abstract']}") > 600)
-its_chunks = [c for c in all_chunks if c["pmc_id"] == long_article["pmc_id"]]
-print(f"\n=== 抽查样例: {long_article['pmc_id']}，原文token数: {token_len(long_article['abstract'])} ===")
-print(f"被切成 {len(its_chunks)} 个chunk:")
-for c in its_chunks:
-    print(f"  chunk{c['chunk_index']}: {c['token_count']} tokens — 开头: {c['text'][:80]}...")
 
-# ---------- 6. 保存结果 ----------
+# ---------- 对全部文献执行分块 ----------
+all_chunks = []
+for _, row in df_clean.iterrows():
+    all_chunks.extend(chunk_document(row))
+
+print(f"分块完成，共生成 {len(all_chunks)} 个chunk（来自 {len(df_clean)} 篇文献）")
+
+# 分割文档，保存结果
+
+import pandas as pd
+import json
+import os
+
+# ---------- 保存chunk数据集 ----------
 output_path = "../data/processed/chunks.json"
+os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
 with open(output_path, "w", encoding="utf-8") as f:
     json.dump(all_chunks, f, ensure_ascii=False, indent=1)
-print(f"\n分块结果已保存到 {output_path}")
+
+print(f"chunk数据集已保存到 {output_path}")
+
+# ---------- 保存处理配置和统计信息 ----------
+chunks_df = pd.DataFrame(all_chunks)
+
+stats = {
+    "processed_date": pd.Timestamp.now().isoformat(),
+    "original_documents": len(df_clean),
+    "total_chunks": len(chunks_df),
+    "chunks_per_doc": len(chunks_df) / len(df_clean) if len(df_clean) > 0 else 0,
+    "chunk_size": 450,
+    "chunk_overlap": 80,
+    "embedding_model": "BAAI/bge-base-en-v1.5",
+    "output_file": str(output_path),
+    # 分支统计：整体不分割 vs 智能分割的文章各有多少
+    "not_split_documents": int((chunks_df["total_chunks"] == 1).sum()),
+    "split_documents": int(len(df_clean) - (chunks_df["total_chunks"] == 1).sum()),
+    # chunk token数分布，供报告直接引用
+    "chunk_token_distribution": {
+        "mean": round(chunks_df["token_count"].mean(), 1),
+        "min": int(chunks_df["token_count"].min()),
+        "max": int(chunks_df["token_count"].max()),
+        "p50": int(chunks_df["token_count"].quantile(0.5)),
+        "p95": int(chunks_df["token_count"].quantile(0.95)),
+    },
+}
+
+stats_path = "../data/processed/chunk_stats.json"
+with open(stats_path, "w", encoding="utf-8") as f:
+    json.dump(stats, f, ensure_ascii=False, indent=2)
+
+print(f"统计信息已保存到 {stats_path}")
+print(json.dumps(stats, ensure_ascii=False, indent=2))
