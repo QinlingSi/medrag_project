@@ -1,19 +1,19 @@
 {
-  "processed_date": "2026-07-09T16:16:34.843123",
-  "original_documents": 2775,
-  "total_chunks": 3436,
-  "chunks_per_doc": 1.2381981981981982,
+  "processed_date": "2026-07-14T00:43:43.474672",
+  "original_documents": 138489,
+  "total_chunks": 170237,
+  "chunks_per_doc": 1.2292456440583728,
   "chunk_size": 450,
   "chunk_overlap": 80,
   "embedding_model": "BAAI/bge-base-en-v1.5",
   "output_file": "../data/processed/chunks.json",
-  "not_split_documents": 2127,
-  "split_documents": 648,
+  "not_split_documents": 107646,
+  "split_documents": 30843,
   "chunk_token_distribution": {
-    "mean": 288.0,
-    "min": 9,
+    "mean": 288.4,
+    "min": 4,
     "max": 450,
-    "p50": 319,
-    "p95": 424
+    "p50": 313,
+    "p95": 426
   }
 }

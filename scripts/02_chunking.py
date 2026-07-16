@@ -4,7 +4,7 @@ import json
 import pandas as pd
 
 # ---------- 1. 加载原始数据，转成DataFrame ----------
-with open("../data/processed/dataset.json", encoding="utf-8") as f:
+with open("../data/processed/dataset_expanded_clean.json", encoding="utf-8") as f:
     data = json.load(f)
 
 df_raw = pd.DataFrame(data)

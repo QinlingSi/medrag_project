@@ -1,0 +1,22 @@
+{
+  "collection_name": "medrag_chunks",
+  "total_chunks": 170237,
+  "embedding_model": "BAAI/bge-small-en-v1.5",
+  "embedding_dimension": 384,
+  "index_built_at": "2026-07-16T11:09:54.869151",
+  "chunk_size_stats": {
+    "mean": 288.4,
+    "max": 450,
+    "min": 4
+  },
+  "metadata_fields": [
+    "doc_id",
+    "chunk_index",
+    "total_chunks",
+    "source_title",
+    "token_count",
+    "pmid",
+    "journal",
+    "pub_date"
+  ]
+}

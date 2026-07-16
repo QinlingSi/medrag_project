@@ -4,3 +4,12 @@ data/raw/
 __pycache__/
 .ipynb_checkpoints/
 *.pyc
+
+# 大文件/生成数据，不进git，只在本地/网盘保存
+data/processed/chunk_embeddings.npy
+data/processed/chroma_db/
+data/processed/chunks.json
+data/processed/chunks.parquet
+.DS_Store
+data/processed/dataset_expanded.json
+data/processed/dataset_expanded_clean.json
