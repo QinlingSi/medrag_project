@@ -13,3 +13,8 @@ data/processed/chunks.parquet
 .DS_Store
 data/processed/dataset_expanded.json
 data/processed/dataset_expanded_clean.json
+bge-reranker-base-cache/
+anaconda_projects/
+chroma_db/
+*.dmg
+Miniconda3*.sh

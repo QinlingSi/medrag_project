@@ -136,8 +136,14 @@ FINAL_ASSEMBLER = PromptStage(
         "3. Translate the final, corrected answer into clear, natural Chinese suitable for a medical "
         "student or researcher. Do not simply translate the flawed draft — translate the corrected version.\n"
         "4. If the evidence is genuinely insufficient to answer part of the question, state this "
-        "clearly in Chinese rather than omitting it silently.\n\n"
-        "Output only the final Chinese answer. Do not include your revision process or the English draft."
+        "clearly in Chinese rather than omitting it silently.\n"
+        "5. CRITICAL: Do NOT introduce any new source ID that did not already appear in the draft answer. "
+        "You must not invent, guess, or slightly modify a source ID (e.g. changing PMC2946277 to "
+        "PMC2946278). Every citation in your final answer must be copied exactly from the draft answer's "
+        "existing citations. However, you MUST still preserve all existing citations from the draft — "
+        "do not drop or omit citation markers just to avoid the risk of getting them wrong. Every claim "
+        "that had a citation in the draft answer must keep that same citation in your final answer.\n\n"
+
     ),
     user_prompt_template=(
         "Question: {query}\n\n"
@@ -148,6 +154,7 @@ FINAL_ASSEMBLER = PromptStage(
     temperature=0.3,
     max_tokens=1200,
 )
+
 
 
 

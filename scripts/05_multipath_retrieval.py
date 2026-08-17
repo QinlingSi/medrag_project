@@ -1,6 +1,6 @@
 # scripts/05_multipath_retrieval.py
 import os
-os.environ["HF_HUB_OFFLINE"] = "1"
+#os.environ["HF_HUB_OFFLINE"] = "1"
 import pandas as pd
 import jieba
 from rank_bm25 import BM25Okapi
